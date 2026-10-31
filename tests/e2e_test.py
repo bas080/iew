@@ -25,10 +25,13 @@ def test_get_config_defaults(tmp_path):
     """When config file does not exist, default values are returned."""
     cfg = get_config(config_path=str(tmp_path / "nonexistent.toml"))
     assert cfg["model"] == "llama3"
+    assert cfg["ollama_model"] == "llama3"
     assert cfg["debounce"] == 15
-    assert cfg["ollama_timeout"] == 180
+    assert cfg["timeout"] == 180
+    assert cfg["max_retries"] == 3
     assert cfg["prompt"] is None
     assert cfg["keep_alive"] == "30m"
+    assert cfg["log_file"] == "~/.config/iew/iew.log"
 
 
 def test_get_config_custom_toml(tmp_path):
@@ -43,7 +46,7 @@ def test_get_config_custom_toml(tmp_path):
     assert cfg["model"] == "mistral"
     assert cfg["debounce"] == 30
     assert cfg["prompt"] == "Custom reviewer instructions"
-    assert cfg["ollama_timeout"] == 180  # default preserved
+    assert cfg["timeout"] == 180  # default preserved
 
 
 def test_build_prompt_default():
@@ -93,7 +96,7 @@ def test_agent_uses_configured_prompt(tmp_path):
     with patch("subprocess.run") as mock_run, patch("iew.agent.get_config") as mock_cfg:
         mock_cfg.return_value = {
             "model": "llama3",
-            "ollama_timeout": 10,
+            "timeout": 10,
             "prompt": "Custom prompt instructions for test"
         }
         mock_run.return_value.returncode = 0
@@ -103,6 +106,54 @@ def test_agent_uses_configured_prompt(tmp_path):
         payload = json.loads(mock_run.call_args[0][0][-1])
         assert "Custom prompt instructions for test" in payload["prompt"]
         assert "<line>: <concise description of issue>" in payload["prompt"]
+
+
+def test_agent_openrouter_provider(tmp_path):
+    """Agent.review_file correctly calls OpenRouter API when provider = openrouter."""
+    f = tmp_path / "test.py"
+    f.write_text("x = 1\n")
+    agent = Agent()
+
+    mock_response_data = json.dumps({
+        "choices": [
+            {
+                "message": {
+                    "content": "2: Unused variable x."
+                }
+            }
+        ]
+    }).encode("utf-8")
+
+    class MockResponse:
+        def __init__(self, data):
+            self.data = data
+        def read(self):
+            return self.data
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            pass
+
+    with patch("iew.agent.get_config") as mock_cfg, patch("urllib.request.urlopen") as mock_urlopen:
+        mock_cfg.return_value = {
+            "provider": "openrouter",
+            "openrouter_key": "test-or-key",
+            "openrouter_model": "deepseek/deepseek-chat-v3-0324:free",
+            "timeout": 10,
+            "prompt": None
+        }
+        mock_urlopen.return_value = MockResponse(mock_response_data)
+
+        feedback = agent.review_file(str(f))
+        assert "2: Unused variable x." in feedback
+
+        # Verify request details
+        req = mock_urlopen.call_args[0][0]
+        assert req.get_full_url() == "https://openrouter.ai/api/v1/chat/completions"
+        assert req.get_header("Authorization") == "Bearer test-or-key"
+        body = json.loads(req.data.decode("utf-8"))
+        assert body["model"] == "deepseek/deepseek-chat-v3-0324:free"
+        assert len(body["messages"]) == 1
 
 
 # --- parse_coordinate ---

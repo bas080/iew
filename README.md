@@ -51,11 +51,17 @@ Configure iew in `~/.config/iew/iew.toml`:
 ```toml
 model = "llama3"
 debounce = 15
-ollama_timeout = 180
+timeout = 180
 keep_alive = "30m"   # Keep model & KV cache loaded in memory (e.g. "30m", "1h", "-1")
+log_file = "~/.config/iew/iew.log"  # Set to "/dev/null" to disable file logging
 
 # Optional custom review prompt
 prompt = "Review this code for bugs, logic errors, and performance improvements."
+
+# Use OpenRouter instead of local Ollama
+provider = "openrouter"
+openrouter_model = "deepseek/deepseek-chat-v3-0324:free"
+openrouter_key = "sk-or-v1-..."     # or omit and use OPENROUTER_API_KEY env var
 ```
 
 ### Prompt Caching (KV Cache Optimization)
