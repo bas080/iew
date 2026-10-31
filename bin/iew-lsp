@@ -1,0 +1,19 @@
+#!/usr/bin/env python3
+"""iew LSP server entry point for editor configuration.
+
+Use this script as the LSP server command in your editor, e.g.:
+
+    ~/.local/bin/iew-lsp
+
+It starts the iew read-only LSP server on stdio.
+"""
+import os
+import sys
+
+# Make the package importable no matter where this script is invoked from.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from iew.lsp_server import main
+
+if __name__ == "__main__":
+    main()
