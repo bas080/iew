@@ -24,3 +24,4 @@ sdist/
 
 # Temp files
 *.tmp
+logs
