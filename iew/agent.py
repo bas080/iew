@@ -15,7 +15,7 @@ def get_config(verbose=False):
     if not os.path.exists(config_path):
         if verbose:
             LOGGER.debug("No config found, using default model")
-        return {"model": "llama3", "log_dir": None, "log_level": "INFO"}
+        return {"model": "llama3", "log_dir": None, "log_level": "INFO", "debounce": 15, "ollama_timeout": 180}
     try:
         config = {}
         with open(config_path, 'r') as f:
@@ -33,7 +33,7 @@ def get_config(verbose=False):
         return config
     except Exception as e:
         LOGGER.debug("Config error: %s", e)
-        return {"model": "llama3", "log_dir": None, "log_level": "INFO"}
+        return {"model": "llama3", "log_dir": None, "log_level": "INFO", "debounce": 15, "ollama_timeout": 180}
 
 
 def setup_agent_logger(verbose=False):
@@ -142,11 +142,15 @@ class Agent:
             model = config.get("model", "llama3")
             LOGGER.info("Using Ollama model: %s", model)
 
+            cfg = get_config(verbose=self.verbose)
+            timeout = float(cfg.get("ollama_timeout", 180))
+            LOGGER.info("Using Ollama timeout: %s", timeout)
+
             response = subprocess.run(
                 ["curl", "-s", "-X", "POST", "http://localhost:11434/api/generate",
                  "-H", "Content-Type: application/json",
                  "-d", json.dumps({"model": model, "prompt": system_prompt, "stream": False})],
-                capture_output=True, text=True, timeout=180
+                capture_output=True, text=True, timeout=timeout
             )
 
             if response.returncode == 0:

@@ -11,6 +11,17 @@ from lsprotocol import types
 from .agent import Agent
 from .format import parse_coordinate
 
+
+def get_debounce():
+    try:
+        from .agent import get_config
+        cfg = get_config()
+        val = cfg.get("debounce", 15)
+        return float(val) if val else 15
+    except Exception:
+        return 15
+
+
 LOGGER = logging.getLogger(__name__)
 
 
@@ -21,6 +32,11 @@ def setup_lsp_logger(verbose=False):
     h = logging.StreamHandler(sys.stderr)
     h.setFormatter(logging.Formatter("%(name)s: %(levelname)s: %(message)s"))
     LOGGER.addHandler(h)
+
+
+from .agent import Agent
+
+DEBOUNCE_DEFAULT = 15
 
 
 class SimpleLSP:
@@ -235,7 +251,7 @@ class SimpleLSP:
             if uri in self.review_timers:
                 self.review_timers[uri].cancel()
 
-            timer = threading.Timer(1.0, self._review_worker, args=(uri, content))
+            timer = threading.Timer(get_debounce(), self._review_worker, args=(uri, content))
             self.review_timers[uri] = timer
             timer.daemon = True
             timer.start()
