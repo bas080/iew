@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+.env
+.pyc
+.pyd
+__pycache__/
+
+# Distribution / packaging
+*.egg
+egg-info/
+dist/
+build/
+sdist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temp files
+*.tmp
