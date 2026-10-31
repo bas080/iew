@@ -6,34 +6,103 @@ import tempfile
 import logging
 import logging.handlers
 
+try:
+    import tomllib
+except ModuleNotFoundError:
+    import tomli as tomllib
+
 LOGGER = logging.getLogger(__name__)
 
 
-def get_config(verbose=False):
-    """Read ~/.config/iew/iew.toml"""
-    config_path = os.path.expanduser("~/.config/iew/iew.toml")
+def get_config(config_path=None, verbose=False):
+    """Read ~/.config/iew/iew.toml using tomllib."""
+    if isinstance(config_path, bool):
+        verbose = config_path
+        config_path = None
+
+    default_config = {
+        "model": "llama3",
+        "log_dir": None,
+        "log_level": "INFO",
+        "debounce": 15,
+        "ollama_timeout": 180,
+        "prompt": None,
+    }
+
+    if config_path is None:
+        config_path = os.path.expanduser("~/.config/iew/iew.toml")
+
     if not os.path.exists(config_path):
         if verbose:
-            LOGGER.debug("No config found, using default model")
-        return {"model": "llama3", "log_dir": None, "log_level": "INFO", "debounce": 15, "ollama_timeout": 180}
+            LOGGER.debug("No config found at %s, using defaults", config_path)
+        return default_config
+
     try:
-        config = {}
-        with open(config_path, 'r') as f:
-            for line in f:
-                line = line.split('#', 1)[0].strip()
-                if '=' in line and not line.startswith('['):
-                    key, val = line.split('=', 1)
-                    key = key.strip()
-                    val = val.strip()
-                    if val.startswith('"') and val.endswith('"'):
-                        val = val[1:-1]
-                    config[key] = val
+        with open(config_path, "rb") as f:
+            config = tomllib.load(f)
+        merged = dict(default_config)
+        merged.update(config)
         if verbose:
-            LOGGER.debug("Config loaded: %s", config)
-        return config
+            LOGGER.debug("Config loaded: %s", merged)
+        return merged
     except Exception as e:
         LOGGER.debug("Config error: %s", e)
-        return {"model": "llama3", "log_dir": None, "log_level": "INFO", "debounce": 15, "ollama_timeout": 180}
+        return default_config
+
+
+def build_prompt(config, display_name, numbered_lines):
+    """Build the AI review prompt, using config['prompt'] if set, or a default prompt.
+
+    The prompt is designed to be flexible and non-restrictive regarding review criteria,
+    while explicitly specifying the output format (<line>: <description>).
+    """
+    custom_prompt = config.get("prompt") if config else None
+
+    output_format_instructions = (
+        "Output format instructions:\n"
+        "- Each finding MUST start with a line number and a colon and a space:\n"
+        "  <line>: <concise description of issue>\n"
+        "- Output ONLY the formatted issue lines (one per line). If no issues exist, leave response completely blank.\n\n"
+        "Examples of valid output:\n"
+        "12: Hardcoded credentials detected.\n"
+        "45: Unused variable 'unused_val'."
+    )
+
+    if not custom_prompt or not str(custom_prompt).strip():
+        return (
+            f"Review the following code file: {display_name}\n"
+            f"Provide code review feedback for any issues, bugs, or improvements.\n\n"
+            f"Code with line numbers:\n"
+            f"{numbered_lines}\n\n"
+            f"{output_format_instructions}"
+        )
+
+    template_vars = {
+        "display_name": display_name,
+        "filename": display_name,
+        "file": display_name,
+        "numbered_lines": numbered_lines,
+        "code": numbered_lines,
+    }
+
+    custom_str = str(custom_prompt)
+    has_code = "{numbered_lines}" in custom_str or "{code}" in custom_str
+    prompt_text = custom_str
+    for k, v in template_vars.items():
+        prompt_text = prompt_text.replace(f"{{{k}}}", v)
+
+    if has_code:
+        if "<line>:" not in prompt_text and "Output format" not in prompt_text:
+            prompt_text = f"{prompt_text}\n\n{output_format_instructions}"
+        return prompt_text
+    else:
+        return (
+            f"{prompt_text}\n\n"
+            f"Code file: {display_name}\n\n"
+            f"Code with line numbers:\n"
+            f"{numbered_lines}\n\n"
+            f"{output_format_instructions}"
+        )
 
 
 def setup_agent_logger(verbose=False):
@@ -81,71 +150,33 @@ class Agent:
         with open(path, 'r') as f:
             return f.read()
 
-    def review_file(self, filepath, original_path=None, scan_todos=True):
+    def review_file(self, filepath, original_path=None):
         LOGGER.info("Reviewing file: %s", filepath)
         try:
             content = self.read_file(filepath)
         except Exception as e:
             LOGGER.error("Read error: %s", e)
-            return f"read: error: {e}"
+            return f"error: {e}"
 
         feedback = []
         lines = content.split('\n')
         LOGGER.info("Scanning %d lines for issues", len(lines))
-
-        # Scan for TODOs if enabled
-        if scan_todos:
-            for i, line in enumerate(lines, 1):
-                if 'TODO' in line:
-                    feedback.append(f"{i}: TODO found")
-                    LOGGER.info("Line %d: TODO found", i)
-
-        # Scan for read: directives
-        for i, line in enumerate(lines, 1):
-            if 'read:' in line:
-                parts = line.split('read:', 1)
-                if len(parts) > 1 and parts[1].strip():
-                    search_term = parts[1].strip()
-                    matches = self._fuzzy_file_search(search_term)
-                    for match in matches[:3]:
-                        feedback.append(f"read: {match}")
-                        LOGGER.info("Read request: %s", match)
 
         # AI enhancement via Ollama
         try:
             display_name = os.path.basename(original_path or filepath)
             numbered_lines = '\n'.join(f"{idx} | {line}" for idx, line in enumerate(lines, 1))
 
-            system_prompt = (
-                f"You are an expert AI code reviewer.\n"
-                f"Review the following code file: {display_name}\n"
-                f"Identify bugs, security vulnerabilities (such as hardcoded credentials, command injection, unsafe calls), "
-                f"syntax errors, unhandled exceptions, unused variables or imports, and important TODO/FIXME comments that require developer attention.\n\n"
-                f"Code with line numbers:\n"
-                f"{numbered_lines}\n\n"
-                f"Output format instructions:\n"
-                f"- Each finding MUST start with a line number or line range, followed by a colon and a space:\n"
-                f"  <line>: <concise description of issue>\n"
-                f"  or\n"
-                f"  <start_line>-<end_line>: <concise description of issue>\n"
-                f"- Use the exact line numbers from the numbered code above.\n"
-                f"- Do NOT wrap lines in quotes or backticks.\n"
-                f"- Do NOT output markdown bullet points, asterisks, headers, summaries, or explanations.\n"
-                f"- Output ONLY the formatted issue lines. If no issues exist, leave response completely blank.\n\n"
-                f"Examples of valid output:\n"
-                f"12: Hardcoded credentials detected.\n"
-                f"45: Unused variable 'unused_val'.\n"
-                f"78-82: Inefficient loop.\n"
-            )
-
             config = get_config(verbose=self.verbose)
             model = config.get("model", "llama3")
             LOGGER.info("Using Ollama model: %s", model)
 
-            cfg = get_config(verbose=self.verbose)
-            timeout = float(cfg.get("ollama_timeout", 180))
+            timeout = float(config.get("ollama_timeout", 180))
             LOGGER.info("Using Ollama timeout: %s", timeout)
 
+            system_prompt = build_prompt(config, display_name, numbered_lines)
+
+            # TODO: Consider using not curl but something python http client.
             response = subprocess.run(
                 ["curl", "-s", "-X", "POST", "http://localhost:11434/api/generate",
                  "-H", "Content-Type: application/json",
@@ -166,7 +197,7 @@ class Agent:
                     if not line:
                         continue
                     coord = iew.format.parse_coordinate(line)
-                    if coord and coord[0] != 'read' and line not in feedback:
+                    if coord and line not in feedback:
                         feedback.append(line)
                         LOGGER.info("Added AI feedback: %s", line)
             else:
@@ -178,14 +209,3 @@ class Agent:
 
         LOGGER.info("Total feedback lines: %d", len(feedback))
         return '\n'.join(feedback) if feedback else ""
-
-    def _fuzzy_file_search(self, term):
-        LOGGER.info("Fuzzy file search for: %s", term)
-        matches = []
-        for root, dirs, files in os.walk('.'):
-            for f in files:
-                full_path = os.path.join(root, f)
-                if term.lower() in full_path.lower():
-                    matches.append(full_path)
-        LOGGER.info("Fuzzy search found %d matches", len(matches))
-        return matches

@@ -3,16 +3,15 @@
 ## Key Fixes
 
 ### 1. Format Parsing (iew/format.py)
-- Fixed parsing of all coordinate formats from README:
+- Simplified to line-only format:
   - `12: message` → line number only
-  - `45:2: message` → character offset
-  - `78:0-78:15: message` → full coordinate pair (line, start_char, end_line, end_char)
-  - `102-105: message` → multiline range without explicit line number
-  - `150:0-150:8: message` → full coordinate pair with line number
-  - `read: filename` → file read request
-- All formats now parse correctly and match specification
+- Removed support for character offsets, multi-line ranges, and coordinate pairs.
 
 ### 2. Agent Class (iew/agent.py)
+- Replaced custom line-by-line TOML parsing with `tomllib` (standard library in Python 3.11+)
+- Made review prompt configurable via `prompt` key in `~/.config/iew/iew.toml`
+- Added `build_prompt` function supporting custom instructions or placeholder templates (`{code}`, `{file}`, etc.)
+- Relaxed default prompt to be less restrictive on review scope while keeping `<line>: <description>` output format requirements explicit
 - Added `verbose` parameter to `Agent.__init__`
 - Added debug methods (`_debug`, `_fuzzy_file_search`) for detailed logging
 - Improved error handling with proper stderr output instead of silent `except: pass`
@@ -35,9 +34,5 @@
 
 All supported coordinate formats now parse correctly:
 - Line-only: `12: message`
-- Offset: `45:2: message`
-- Pair: `78:0-78:15: message`, `150:0-150:8: message`
-- Multiline range: `102-105: message`
-- File read: `read: filename`
 
 The tool is now fully compliant with the README specifications and provides debugging capabilities through the new verbose flag.

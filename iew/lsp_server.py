@@ -262,8 +262,7 @@ class SimpleLSP:
             temp_file = self._create_temp_file(uri, content)
             try:
                 original_path = uri.replace("file://", "")
-                # Do not hardcode TODO notifications; let the AI model determine if a TODO warrants reporting
-                feedback = self.agent.review_file(temp_file, original_path=original_path, scan_todos=False)
+                feedback = self.agent.review_file(temp_file, original_path=original_path)
             finally:
                 try:
                     os.remove(temp_file)
@@ -293,7 +292,7 @@ class SimpleLSP:
 
         for line in feedback_text.split('\n'):
             line = line.strip()
-            if not line or line.startswith('read:'):
+            if not line:
                 continue
 
             coord = parse_coordinate(line)
@@ -322,27 +321,6 @@ class SimpleLSP:
             else:
                 end_char = 100
             msg = coord[2]
-        elif coord[0] == 'offset':
-            start_line = max(0, coord[1] - 1)
-            start_char = max(0, coord[2])
-            end_line = start_line
-            end_char = start_char + 1
-            msg = coord[3]
-        elif coord[0] == 'pair':
-            start_line = max(0, coord[1] - 1)
-            start_char = max(0, coord[2])
-            end_line = max(0, coord[3] - 1)
-            end_char = max(start_char + 1, coord[4])
-            msg = coord[5]
-        elif coord[0] == 'multiline_range':
-            start_line = max(0, coord[1] - 1)
-            end_line = max(start_line, coord[2] - 1)
-            start_char = 0
-            if lines and 0 <= end_line < len(lines):
-                end_char = max(1, len(lines[end_line]))
-            else:
-                end_char = 100
-            msg = coord[3]
 
         if msg:
             return types.Diagnostic(

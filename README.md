@@ -8,9 +8,7 @@ An AI-powered code review tool that integrates as a read-only LSP into your edit
 - **LSP integration**: Works with editors that support LSP (VS Code, Neovim, etc.).
 - **Lazy activation**: Only spins up when a file has been untouched for a while.
 - **AI-powered feedback**: Uses Ollama to analyze code and generate structured feedback.
-- **Multi-format support**: Handles line-only, single-line offsets, multi-line ranges, and full coordinate pairs.
-- **TODO detection** — finds TODO comments in the code
-- **Read requests** — `read: other.js` requests other files for context and does a fuzzy search on file names. (first n results) We do not want to overwhelm the AI by sending a bunch of file contents.
+- **Simple line format**: Just a line number and message.
 
 ## iew-format
 
@@ -18,19 +16,12 @@ The feedback format uses coordinates to pinpoint issues:
 
 ```
 12: Unused variable.
-45:2: Missing quote.
-78:0-78:15: Hardcoded secret.
-102-105: Inefficient loop.
-150:0-150:8: Error handling missing.
-read: main.mjs
-read: substring match
+45: Missing quote.
+78: Hardcoded secret.
+102: Inefficient loop.
 ```
 
 - `line: message` — a line-level issue
-- `offset: line:char: message` — a character offset within a line
-- `range: start-end: message` — a multi-line range
-- `pair: line:start-end: message` — full coordinate pair
-- `read: filename` — a request to read another file
 
 ## Quick Start
 
@@ -50,13 +41,46 @@ iew /path/to/file.js
 
 ### Features
 
-- **TODO detection** — finds TODO comments in the code
-- **Read requests** — `read: other.js` requests other files for context and does a fuzzy search on file names. (first n results) We do not want to overwhelm the AI by sending a bunch of file contents.
 - **AI enhancement** — uses Ollama to generate additional feedback
+- **Configurable** — customize model, debounce, timeout, and review prompt via `~/.config/iew/iew.toml`
+
+## Configuration
+
+Configure iew in `~/.config/iew/iew.toml`:
+
+```toml
+model = "llama3"
+debounce = 15
+ollama_timeout = 180
+
+# Optional custom review prompt
+prompt = "Review this code for bugs, logic errors, and performance improvements."
+```
+
+### Ollama Concurrency & Memory Tuning
+
+When working across multiple files simultaneously, iew debounces edits per file and submits review requests to Ollama.
+
+To allow Ollama to review multiple files concurrently, set `OLLAMA_NUM_PARALLEL`:
+
+```bash
+# In your ~/.bashrc (or systemd service environment)
+export OLLAMA_NUM_PARALLEL=2
+```
+
+*(Restart your `ollama serve` instance after changing this variable.)*
+
+#### Memory & Performance Considerations
+
+- **Memory Usage**: Each parallel slot allocates its own KV-cache context window in addition to base model weights. Running a ~4B–7B parameter model with `OLLAMA_NUM_PARALLEL=2` can require 7–8+ GB of RAM or VRAM.
+- **CPU vs. GPU**: On CPU-only setups, parallel generation divides CPU cores, increasing per-request review latency.
+- **Tuning Tips**:
+  - **16 GB RAM or CPU-only**: Use `OLLAMA_NUM_PARALLEL=1` or `2`. If experiencing high memory pressure or swap thrashing, increase `debounce` in `iew.toml` (e.g., `debounce = 30` or `45`) or use a lighter model (e.g., `qwen2.5-coder:3b-instruct` or `phi3`).
+  - **Dedicated GPU (>= 16 GB VRAM)**: Parallel slots (`OLLAMA_NUM_PARALLEL=2` or higher) run with low latency.
 
 ## How it works
 
-1. **Agent** reads the file and scans for issues (TODO, read requests, etc.)
+1. **Agent** reads the file and scans for issues
 2. **Ollama** (via JSON API) provides AI-powered analysis
 3. **Feedback** is formatted in iew-format and sent to the editor
 

@@ -24,15 +24,12 @@ python3 -m pytest tests/ -v
 Run a single test:
 
 ```bash
-python3 -m pytest tests/e2e_test.py::test_parse_coordinate_pair -v
+python3 -m pytest tests/e2e_test.py::test_parse_coordinate_line -v
 ```
 
 Run tests for specific functionality:
 
 ```bash
-# TODO detection tests
-python3 -m pytest tests/ -v -k "todo"
-
 # Parse coordinate tests
 python3 -m pytest tests/ -v -k "parse_coordinate"
 
@@ -46,22 +43,17 @@ python3 -m pytest tests/ -v -k "lsp"
 ### Test Structure
 The `tests/e2e_test.py` file contains the following test categories:
 
-### 1. TODO Detection Tests
-- `test_todo_detected_and_parseable`: Verifies TODO comments are detected and produce parseable output
-- `test_no_todo_no_line_feedback`: Verifies files without TODOs still return gracefully
+### 1. Configuration & Prompt Tests
+- `test_get_config_defaults`: Verifies default configuration when file does not exist
+- `test_get_config_custom_toml`: Verifies loading custom settings via `tomllib`
+- `test_build_prompt_default`: Verifies flexible default review prompt with line-number output format
+- `test_build_prompt_custom_instruction`: Verifies custom prompt instruction preserves output format
+- `test_build_prompt_custom_template`: Verifies placeholder substitution for custom templates
+- `test_agent_uses_configured_prompt`: Verifies Agent uses configured prompt during review
 
-### 2. Read Request Tests
-- `test_read_request_parsed`: Verifies `read:` lines trigger fuzzy file search
-- `test_read_request_finds_files`: Verifies fuzzy file search returns matching files
-- `test_read_request_partial_match`: Verifies substring matching works
-
-### 3. Coordinate Parsing Tests
+### 2. Coordinate Parsing Tests
 - `test_parse_coordinate_line`: Tests `line:` format parsing
-- `test_parse_coordinate_offset`: Tests `offset:` format parsing
-- `test_parse_coordinate_pair`: Tests `pair:` format parsing
-- `test_parse_coordinate_pair_alt`: Tests alternative pair format
-- `test_parse_coordinate_multiline`: Tests multiline range format
-- `test_parse_coordinate_read`: Tests `read:` format parsing
+- `test_parse_coordinate_simple_only`: Tests line parsing with colons in message
 - `test_parse_coordinate_empty`: Tests empty input handling
 - `test_parse_coordinate_garbage`: Tests garbage input handling
 
