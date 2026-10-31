@@ -66,6 +66,16 @@ iew /path/to/file.js
 - Ollama running locally (default model: `llama3`)
 - Editor supporting LSP (VS Code, Neovim, etc.)
 
+## Testing
+
+Run the test suite:
+
+```bash
+python3 -m pytest tests/ -v
+```
+
+All tests pass with Ollama running locally. See `TESTING.md` for detailed instructions and troubleshooting.
+
 ## License
 
 MIT

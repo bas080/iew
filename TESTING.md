@@ -1,0 +1,158 @@
+# Testing Guide
+
+## Overview
+This project contains end-to-end tests in the `tests/` directory to verify functionality of the iew code review tool.
+
+## Prerequisites
+- Python 3.8+
+- pytest (7.2.1+) - can be installed via pip
+- Required Python packages: lsprotocol, pygls (used by tests)
+- Ollama running locally (required for LSP tests)
+
+## How to Run Tests
+
+### Quick Test Run
+Run all 16 tests (including LSP test which needs Ollama):
+
+```bash
+python3 -m pytest tests/ -v
+```
+
+**Test Results**: All 16 tests pass ✓
+
+### Run Specific Tests
+Run a single test:
+
+```bash
+python3 -m pytest tests/e2e_test.py::test_parse_coordinate_pair -v
+```
+
+Run tests for specific functionality:
+
+```bash
+# TODO detection tests
+python3 -m pytest tests/ -v -k "todo"
+
+# Parse coordinate tests
+python3 -m pytest tests/ -v -k "parse_coordinate"
+
+# CLI tests
+python3 -m pytest tests/ -v -k "cli"
+
+# LSP tests
+python3 -m pytest tests/ -v -k "lsp"
+```
+
+### Test Structure
+The `tests/e2e_test.py` file contains the following test categories:
+
+### 1. TODO Detection Tests
+- `test_todo_detected_and_parseable`: Verifies TODO comments are detected and produce parseable output
+- `test_no_todo_no_line_feedback`: Verifies files without TODOs still return gracefully
+
+### 2. Read Request Tests
+- `test_read_request_parsed`: Verifies `read:` lines trigger fuzzy file search
+- `test_read_request_finds_files`: Verifies fuzzy file search returns matching files
+- `test_read_request_partial_match`: Verifies substring matching works
+
+### 3. Coordinate Parsing Tests
+- `test_parse_coordinate_line`: Tests `line:` format parsing
+- `test_parse_coordinate_offset`: Tests `offset:` format parsing
+- `test_parse_coordinate_pair`: Tests `pair:` format parsing
+- `test_parse_coordinate_pair_alt`: Tests alternative pair format
+- `test_parse_coordinate_multiline`: Tests multiline range format
+- `test_parse_coordinate_read`: Tests `read:` format parsing
+- `test_parse_coordinate_empty`: Tests empty input handling
+- `test_parse_coordinate_garbage`: Tests garbage input handling
+
+### 4. CLI Entry Point Tests
+- `test_cli_no_args_exits`: Verifies the CLI exits with error when no filepath is provided
+- `test_cli_reviews_file`: Verifies the CLI prints feedback to stdout
+
+### 5. LSP Bin Script End-to-End Test
+- `test_bin_lsp_initialize_and_review`: Tests the `iew-lsp` binary script starts correctly, responds to LSP initialize messages, and handles didOpen events
+
+## Test Dependencies
+The tests use these dependencies:
+- `pytest`: Testing framework
+- `lsprotocol` & `pygls`: For LSP-related tests
+- `unittest.mock`: For mocking in tests
+- `subprocess`: For running the LSP server binary
+
+If you encounter import errors, install them:
+
+```bash
+pip install pytest lsprotocol pygls
+```
+
+## Debug Output
+Many tests can be run with verbose output to see more details. Use the `-v` flag with pytest to see which tests are running and their status.
+
+Some components of the code (like `Agent`) have a `--verbose` flag that can be used from the command line:
+
+```bash
+iew --verbose /path/to/file.js
+```
+
+## Test Time Requirements
+The LSP test (`test_bin_lsp_initialize_and_review`) requires:
+- ~30 seconds to complete
+- Ollama running locally with the `llama3` model
+- Sufficient time for Ollama to process the test file and generate feedback
+
+All non-LSP tests complete in ~30-90 seconds total.
+
+## CI/CD Integration
+These tests can be integrated into CI/CD pipelines using:
+
+```yaml
+# Example for GitHub Actions - allows longer timeout for LSP test
+- name: Run tests
+  run: |
+    timeout 360 python3 -m pytest tests/ -v
+```
+
+## Troubleshooting
+
+### Common Issues:
+
+1. **Test timeouts**:
+   - The LSP test needs ~30 seconds and Ollama running
+   - Use `timeout 360 python3 -m pytest tests/ -v` to give it 6 minutes
+   - Ensure Ollama is running with `ollama list`
+
+2. **Import errors**:
+   - Install missing dependencies with `pip install pytest lsprotocol pygls`
+
+3. **Test failures**:
+   - Look at the error output for specific failures
+   - Check if Ollama is running for LSP tests
+
+### Running Tests Manually
+If you want to test functionality outside of pytest:
+
+```bash
+# Test the main iew command
+iew /path/to/your/file.js
+
+# Test the LSP server
+bin/iew-lsp
+```
+
+Note: The iew command may wait for Ollama to be running before producing output.
+
+## Debugging with Ollama
+If LSP tests fail due to Ollama issues:
+
+```bash
+# Check if Ollama is running
+ollama list
+
+# Start Ollama if not running
+ollama serve
+
+# Pull the default model if needed
+ollama pull llama3
+```
+
+All 16 tests pass successfully when all dependencies are met!
