@@ -1,13 +1,12 @@
-import time
-import urllib.request
-import urllib.error
-import subprocess
 import json
-import os
-import sys
-import tempfile
 import logging
 import logging.handlers
+import os
+import subprocess
+import sys
+import tempfile
+
+from .adapters import get_adapter
 
 try:
     import tomllib
@@ -185,99 +184,23 @@ class Agent:
         lines = content.split('\n')
         LOGGER.info("Scanning %d lines for issues", len(lines))
 
-        # AI enhancement via Ollama
+        # AI enhancement via configured provider adapter
         try:
             display_name = os.path.basename(original_path or filepath)
             numbered_lines = '\n'.join(f"{idx} | {line}" for idx, line in enumerate(lines, 1))
 
             config = get_config(verbose=self.verbose)
-            provider = config.get("provider", "ollama")
-            LOGGER.info("Using provider: %s", provider)
-
-            timeout = float(config.get("timeout") or config.get("ollama_timeout", 180))
-            LOGGER.info("Using timeout: %s", timeout)
-
             system_prompt = build_prompt(config, display_name, numbered_lines)
 
-            if provider == "openrouter":
-                openrouter_key = config.get("openrouter_key") or os.environ.get("OPENROUTER_API_KEY")
-                if not openrouter_key:
-                    LOGGER.error("OpenRouter API key missing: set openrouter_key in iew.toml or OPENROUTER_API_KEY env")
-                    return f"error: OpenRouter API key missing"
-
-                openrouter_model = config.get("openrouter_model") or config.get("model") or "deepseek/deepseek-chat-v3-0324:free"
-                url = "https://openrouter.ai/api/v1/chat/completions"
-
-                payload = {
-                    "model": openrouter_model,
-                    "messages": [{"role": "user", "content": system_prompt}],
-                    "temperature": 0.0,
-                }
-                headers = {
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {openrouter_key}",
-                }
-
-                req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-                
-                # Retry logic with exponential backoff
-                max_retries = int(config.get("max_retries", 3))
-                backoff = 2
-                for attempt in range(max_retries):
-                    try:
-                        with urllib.request.urlopen(req, timeout=timeout) as resp:
-                            data = json.loads(resp.read().decode("utf-8"))
-                            choices = data.get("choices", [])
-                            if choices and "message" in choices[0] and "content" in choices[0]["message"]:
-                                output = choices[0]["message"]["content"]
-                            else:
-                                output = data.get("response") or ""
-                            LOGGER.info("OpenRouter response received (%d chars)", len(output))
-                            self._process_feedback(output, lines, feedback)
-                            return '\n'.join(feedback) if feedback else ""
-                    except urllib.error.HTTPError as e:
-                        if e.code == 429 and attempt < max_retries - 1:
-                            wait = backoff * (2 ** attempt)
-                            LOGGER.warning("OpenRouter rate limit (429), retrying in %ds...", wait)
-                            time.sleep(wait)
-                            continue
-                        LOGGER.error("OpenRouter HTTP error: %s", e)
-                        return f"error: OpenRouter HTTP error: {e}"
-                    except urllib.error.URLError as e:
-                        LOGGER.error("OpenRouter request error: %s", e)
-                        return f"error: OpenRouter request failed: {e}"
-                    except Exception as e:
-                        LOGGER.error("OpenRouter error: %s", e)
-                        return f"error: OpenRouter error: {e}"
-
-            # Ollama path (existing)
-            keep_alive = config.get("keep_alive", "30m")
-            payload = {
-                "model": config.get("ollama_model") or config.get("model", "llama3"),
-                "prompt": system_prompt,
-                "stream": False,
-            }
-            if keep_alive is not None and provider == "ollama":
-                payload["keep_alive"] = keep_alive
-
-            response = subprocess.run(
-                ["curl", "-s", "-X", "POST", "http://localhost:11434/api/generate",
-                 "-H", "Content-Type: application/json",
-                 "-d", json.dumps(payload)],
-                capture_output=True, text=True, timeout=timeout
-            )
-
-            if response.returncode == 0:
-                data = json.loads(response.stdout)
-                output = data.get("response", "")
-                LOGGER.info("Ollama response received (%d chars)", len(output))
+            adapter = get_adapter(config)
+            output = adapter.complete(system_prompt)
+            if output:
                 self._process_feedback(output, lines, feedback)
-            else:
-                LOGGER.error("Ollama API error: %s", response.stderr)
         except subprocess.TimeoutExpired:
-            LOGGER.warning("Ollama request timed out")
+            LOGGER.warning("Request timed out")
         except Exception as e:
-            LOGGER.error("Ollama error: %s", e)
+            LOGGER.error("Review error: %s", e)
+            return f"error: {e}"
 
         LOGGER.info("Total feedback lines: %d", len(feedback))
         return '\n'.join(feedback) if feedback else ""

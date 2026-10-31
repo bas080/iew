@@ -156,6 +156,36 @@ def test_agent_openrouter_provider(tmp_path):
         assert len(body["messages"]) == 1
 
 
+# --- Adapter tests ---
+
+def test_get_adapter_resolution():
+    """get_adapter factory resolves providers correctly."""
+    from iew.adapters import get_adapter, OllamaAdapter, OpenRouterAdapter
+
+    ollama = get_adapter({"provider": "ollama"})
+    assert isinstance(ollama, OllamaAdapter)
+
+    # Default is ollama
+    default_adapter = get_adapter({})
+    assert isinstance(default_adapter, OllamaAdapter)
+
+    openrouter = get_adapter({"provider": "openrouter", "openrouter_key": "dummy"})
+    assert isinstance(openrouter, OpenRouterAdapter)
+
+    with pytest.raises(ValueError, match="Unknown provider 'invalid'"):
+        get_adapter({"provider": "invalid"})
+
+
+def test_openrouter_adapter_missing_key():
+    """OpenRouterAdapter raises ValueError if no API key is configured."""
+    from iew.adapters.openrouter import OpenRouterAdapter
+
+    adapter = OpenRouterAdapter({"provider": "openrouter"})
+    with patch.dict("os.environ", {}, clear=True):
+        with pytest.raises(ValueError, match="OpenRouter API key missing"):
+            adapter.complete("hello")
+
+
 # --- parse_coordinate ---
 
 def test_parse_coordinate_line():
