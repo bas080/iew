@@ -28,6 +28,7 @@ def test_get_config_defaults(tmp_path):
     assert cfg["debounce"] == 15
     assert cfg["ollama_timeout"] == 180
     assert cfg["prompt"] is None
+    assert cfg["keep_alive"] == "30m"
 
 
 def test_get_config_custom_toml(tmp_path):
@@ -70,6 +71,18 @@ def test_build_prompt_custom_template():
     assert "Check bar.js:" in prompt
     assert "1 | console.log('test');" in prompt
     assert "<line>: <msg>" in prompt
+
+
+def test_build_prompt_prefix_order():
+    """Verify that static instructions appear before the file and code to maximize KV cache hits."""
+    prompt = build_prompt({}, "foo.py", "1 | x = 1")
+    instr_pos = prompt.find("Output format instructions:")
+    file_pos = prompt.find("Code file: foo.py")
+    code_pos = prompt.find("1 | x = 1")
+    assert instr_pos != -1
+    assert file_pos != -1
+    assert code_pos != -1
+    assert instr_pos < file_pos < code_pos
 
 
 def test_agent_uses_configured_prompt(tmp_path):

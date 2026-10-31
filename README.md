@@ -52,10 +52,19 @@ Configure iew in `~/.config/iew/iew.toml`:
 model = "llama3"
 debounce = 15
 ollama_timeout = 180
+keep_alive = "30m"   # Keep model & KV cache loaded in memory (e.g. "30m", "1h", "-1")
 
 # Optional custom review prompt
 prompt = "Review this code for bugs, logic errors, and performance improvements."
 ```
+
+### Prompt Caching (KV Cache Optimization)
+
+To minimize review latency on subsequent edits, iew formats prompts so all static instructions and output format rules are placed at the beginning:
+
+1. **Global Static Header**: The review instructions and output rules match the cache across *all* files and requests.
+2. **File & Code Prefix**: Subsequent reviews of the same file reuse the cached tokens from line 1 up to whichever line was modified.
+3. **`keep_alive`**: Configured by default to keep the model and its KV cache resident in memory so subsequent edits don't trigger cold-reloads.
 
 ### Ollama Concurrency & Memory Tuning
 

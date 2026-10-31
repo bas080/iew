@@ -27,6 +27,7 @@ def get_config(config_path=None, verbose=False):
         "debounce": 15,
         "ollama_timeout": 180,
         "prompt": None,
+        "keep_alive": "30m",
     }
 
     if config_path is None:
@@ -51,7 +52,7 @@ def get_config(config_path=None, verbose=False):
 
 
 def build_prompt(config, display_name, numbered_lines):
-    """Build the AI review prompt, using config['prompt'] if set, or a default prompt.
+    """Build the AI review prompt, placing static instructions first for optimal KV cache reuse.
 
     The prompt is designed to be flexible and non-restrictive regarding review criteria,
     while explicitly specifying the output format (<line>: <description>).
@@ -70,11 +71,11 @@ def build_prompt(config, display_name, numbered_lines):
 
     if not custom_prompt or not str(custom_prompt).strip():
         return (
-            f"Review the following code file: {display_name}\n"
-            f"Provide code review feedback for any issues, bugs, or improvements.\n\n"
-            f"Code with line numbers:\n"
-            f"{numbered_lines}\n\n"
-            f"{output_format_instructions}"
+            "Review the code and provide code review feedback for any issues, bugs, or improvements.\n\n"
+            f"{output_format_instructions}\n\n"
+            f"Code file: {display_name}\n\n"
+            "Code with line numbers:\n"
+            f"{numbered_lines}"
         )
 
     template_vars = {
@@ -98,10 +99,10 @@ def build_prompt(config, display_name, numbered_lines):
     else:
         return (
             f"{prompt_text}\n\n"
+            f"{output_format_instructions}\n\n"
             f"Code file: {display_name}\n\n"
-            f"Code with line numbers:\n"
-            f"{numbered_lines}\n\n"
-            f"{output_format_instructions}"
+            "Code with line numbers:\n"
+            f"{numbered_lines}"
         )
 
 
@@ -174,13 +175,23 @@ class Agent:
             timeout = float(config.get("ollama_timeout", 180))
             LOGGER.info("Using Ollama timeout: %s", timeout)
 
+            keep_alive = config.get("keep_alive", "30m")
+
             system_prompt = build_prompt(config, display_name, numbered_lines)
+
+            payload = {
+                "model": model,
+                "prompt": system_prompt,
+                "stream": False,
+            }
+            if keep_alive is not None:
+                payload["keep_alive"] = keep_alive
 
             # TODO: Consider using not curl but something python http client.
             response = subprocess.run(
                 ["curl", "-s", "-X", "POST", "http://localhost:11434/api/generate",
                  "-H", "Content-Type: application/json",
-                 "-d", json.dumps({"model": model, "prompt": system_prompt, "stream": False})],
+                 "-d", json.dumps(payload)],
                 capture_output=True, text=True, timeout=timeout
             )
 
