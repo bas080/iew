@@ -1,20 +1,25 @@
+import re
+
+
 def parse_coordinate(line):
     """Parse iew-format coordinate line.
 
-    Supported format:
+    Supported formats:
     - 12: Unused variable.
+    - Line 12: Unused variable.
+    - 12:feedback
+    - Line 12:feedback
     """
     line = line.strip()
     if not line:
         return None
 
-    if ':' not in line:
+    # Match digits followed by a colon anywhere in the line
+    match = re.search(r"(\d+):", line)
+    if not match:
         return None
 
-    parts = line.split(':', 1)
-    if parts[0].isdigit():
-        line_num = int(parts[0])
-        text = parts[1].strip()
-        return ('line', line_num, text)
-
-    return None
+    line_num = int(match.group(1))
+    # Text after the matched digits and colon
+    text = line[match.end():].strip()
+    return ("line", line_num, text)

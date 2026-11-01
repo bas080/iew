@@ -1,7 +1,8 @@
 """Ollama adapter for local model inference."""
 import json
 import logging
-import subprocess
+import urllib.request
+import urllib.error
 
 from .base import BaseAdapter
 
@@ -14,34 +15,63 @@ class OllamaAdapter(BaseAdapter):
     name = "ollama"
 
     def complete(self, prompt: str) -> str:
-        model = self.config.get("ollama_model") or self.config.get("model", "llama3")
-        LOGGER.info("Using Ollama model: %s", model)
-
-        timeout = float(self.config.get("timeout") or self.config.get("ollama_timeout", 180))
-        LOGGER.info("Using timeout: %s", timeout)
-
-        keep_alive = self.config.get("keep_alive", "30m")
+        # Sane defaults for Ollama /api/generate
         payload = {
-            "model": model,
-            "prompt": prompt,
+            "model": "llama3",
             "stream": False,
         }
-        if keep_alive is not None:
-            payload["keep_alive"] = keep_alive
 
-        response = subprocess.run(
-            ["curl", "-s", "-X", "POST", "http://localhost:11434/api/generate",
-             "-H", "Content-Type: application/json",
-             "-d", json.dumps(payload)],
-            capture_output=True, text=True, timeout=timeout
+        # Merge user's configured request dictionary as-is
+        user_request = self.config.get("request", {})
+        if isinstance(user_request, dict):
+            payload.update({k: v for k, v in user_request.items() if v is not None})
+
+        # Backwards compatibility: fallback to root model if not in request
+        if "model" not in payload and "model" in self.config:
+            payload["model"] = self.config["model"]
+
+        # Support 'thinking' alias for 'think'
+        if "thinking" in payload:
+            thinking = payload.pop("thinking")
+            if "think" not in payload and thinking is not None:
+                payload["think"] = thinking
+
+        # Set the prompt to complete
+        payload["prompt"] = prompt
+
+        LOGGER.info("Using Ollama model: %s", payload.get("model"))
+
+        timeout = float(self.config.get("timeout", 180))
+        LOGGER.info("Using timeout: %s", timeout)
+
+        req = urllib.request.Request(
+            "http://localhost:11434/api/generate",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
 
-        if response.returncode == 0:
-            data = json.loads(response.stdout)
-            output = data.get("response", "")
-            LOGGER.info("Ollama response received (%d chars)", len(output))
-            LOGGER.info("Ollama raw response: %s", output[:500])
-            return output
-        else:
-            LOGGER.error("Ollama API error: %s", response.stderr)
-            raise RuntimeError(f"Ollama API error: {response.stderr}")
+        max_retries = int(self.config.get("max_retries", 3))
+        backoff = 2
+        for attempt in range(max_retries):
+            try:
+                with urllib.request.urlopen(req, timeout=timeout) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    output = data.get("response", "")
+                    thinking_trace = data.get("thinking")
+                    if thinking_trace:
+                        LOGGER.info("Ollama thinking trace: %s", thinking_trace[:500])
+                    LOGGER.info("Ollama response received (%d chars)", len(output))
+                    LOGGER.info("Ollama raw response: %s", output[:500])
+                    return output
+            except urllib.error.HTTPError as e:
+                LOGGER.error("Ollama HTTP error: %s", e)
+                raise RuntimeError(f"Ollama HTTP error: {e}")
+            except urllib.error.URLError as e:
+                LOGGER.error("Ollama request error: %s", e)
+                raise RuntimeError(f"Ollama request failed: {e}")
+            except Exception as e:
+                LOGGER.error("Ollama error: %s", e)
+                raise
+
+        return ""

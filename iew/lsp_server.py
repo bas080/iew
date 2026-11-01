@@ -259,15 +259,10 @@ class SimpleLSP:
     def _review_worker(self, uri, content):
         """Background thread executing review with Ollama."""
         try:
-            temp_file = self._create_temp_file(uri, content)
-            try:
-                original_path = uri.replace("file://", "")
-                feedback = self.agent.review_file(temp_file, original_path=original_path)
-            finally:
-                try:
-                    os.remove(temp_file)
-                except Exception:
-                    pass
+            original_path = uri.replace("file://", "")
+            # Use content from document store instead of temp file
+            content = self.document_store.get(uri, content)
+            feedback = self.agent.review_file(original_path, original_path=original_path)
 
             if uri in self.document_store:
                 lines = self.document_store[uri].split('\n')
@@ -276,32 +271,36 @@ class SimpleLSP:
         except Exception as e:
             LOGGER.error("Review worker error for %s: %s", uri, e)
 
-    def _create_temp_file(self, uri, content):
-        """Create temporary file for review preserving file extension."""
-        file_path = uri.replace('file://', '')
-        _, ext = os.path.splitext(file_path)
-        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix=ext or '.tmp') as f:
-            f.write(content)
-            return f.name
-
     def convert_feedback_to_diagnostics(self, uri, feedback_text, lines=None):
         """Convert iew-format feedback lines to Diagnostic objects."""
         diagnostics = []
         if not feedback_text:
             return diagnostics
 
-        for line in feedback_text.split('\n'):
-            line = line.strip()
+        current_coord = None
+        for raw_line in feedback_text.split('\n'):
+            line = raw_line.strip()
             if not line:
                 continue
 
             coord = parse_coordinate(line)
-            if not coord:
-                continue
+            if coord:
+                if current_coord:
+                    diag = self._coord_to_diagnostic(current_coord, lines=lines)
+                    if diag:
+                        diagnostics.append(diag)
+                current_coord = coord
+            elif current_coord:
+                # Continuation line of multi-line feedback
+                kind, line_num, msg = current_coord
+                new_msg = f"{msg}\n{line}" if msg else line
+                current_coord = (kind, line_num, new_msg)
 
-            diag = self._coord_to_diagnostic(coord, lines=lines)
+        if current_coord:
+            diag = self._coord_to_diagnostic(current_coord, lines=lines)
             if diag:
                 diagnostics.append(diag)
+
         return diagnostics
 
     def _coord_to_diagnostic(self, coord, lines=None):

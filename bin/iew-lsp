@@ -6,6 +6,10 @@ Use this script as the LSP server command in your editor, e.g.:
     ~/.local/bin/iew-lsp
 
 It starts the iew read-only LSP server on stdio.
+
+Usage:
+    iew-lsp           # Start the LSP server (default)
+    iew-lsp --health  # Send "hi" to the configured provider/model for debugging
 """
 import os
 import sys
@@ -14,7 +18,43 @@ import sys
 # Use realpath to resolve symlinks (e.g., ~/.local/bin/iew-lsp -> /home/bashbot/iew/bin/iew-lsp)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
 
-from iew.lsp_server import main
+
+def run_health():
+    """Send a ping ("hi") to the configured provider/model for debugging."""
+    # Import from the correct package
+    from iew.agent import get_config
+
+    config = get_config()
+    print("Loaded config: provider=%s, model=%s" % (
+        config.get("provider"),
+        config.get("model"),
+    ))
+
+    from iew.adapters import get_adapter
+
+    adapter = get_adapter(config)
+    prompt = "hi"
+    print("Sending '%s' to %s model '%s'..." % (
+        prompt,
+        config.get("provider"),
+        config.get("model"),
+    ))
+
+    try:
+        response = adapter.complete(prompt)
+        print("Response: %s" % response)
+    except Exception as e:
+        print("Error sending request: %s" % e)
+        sys.exit(1)
+
+    log_file = config.get("log_file", "~/.config/iew/iew.log")
+    print("Logs are stored in %s" % os.path.expanduser(log_file))
+
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 1 and sys.argv[1] == "--health":
+        run_health()
+    else:
+        from iew.lsp_server import main
+
+        main()

@@ -17,28 +17,34 @@ LOGGER = logging.getLogger(__name__)
 
 
 def get_config(config_path=None, verbose=False):
-    """Read ~/.config/iew/iew.toml using tomllib."""
+    """Read config from config_path, IEW_CONFIG env var, or ~/.config/iew/iew.toml using tomllib."""
     if isinstance(config_path, bool):
         verbose = config_path
         config_path = None
 
     default_config = {
-        "model": "llama3",
-        "ollama_model": "llama3",
         "provider": "ollama",
-        "openrouter_model": "deepseek/deepseek-chat-v3-0324:free",
-        "openrouter_key": None,
+        "model": "llama3",
+        "api_key": None,
         "log_level": "INFO",
         "log_file": "~/.config/iew/iew.log",
         "debounce": 15,
         "timeout": 180,
         "max_retries": 3,
-        "prompt": None,
-        "keep_alive": "30m",
+        "request": {
+            "model": "llama3",
+            "prompt": None,
+            "thinking": None,
+            "keep_alive": "30m",
+        },
     }
 
     if config_path is None:
-        config_path = os.path.expanduser("~/.config/iew/iew.toml")
+        env_config = os.environ.get("IEW_CONFIG")
+        if env_config:
+            config_path = os.path.expanduser(env_config)
+        else:
+            config_path = os.path.expanduser("~/.config/iew/iew.toml")
 
     if not os.path.exists(config_path):
         if verbose:
@@ -49,7 +55,28 @@ def get_config(config_path=None, verbose=False):
         with open(config_path, "rb") as f:
             config = tomllib.load(f)
         merged = dict(default_config)
+        merged_request = dict(default_config["request"])
+
+        # If provider is openrouter and no model was explicitly configured, use OpenRouter's default model
+        provider = config.get("provider", default_config.get("provider", "ollama"))
+        if provider == "openrouter":
+            has_explicit_model = "model" in config or ("request" in config and isinstance(config["request"], dict) and "model" in config["request"])
+            if not has_explicit_model:
+                openrouter_default = config.get("openrouter_model", "deepseek/deepseek-chat-v3-0324:free")
+                merged["model"] = openrouter_default
+                merged_request["model"] = openrouter_default
+
+        if "request" in config and isinstance(config["request"], dict):
+            merged_request.update(config["request"])
+        # Support root-level model/prompt/thinking/keep_alive for backwards compatibility
+        for k in ("model", "prompt", "thinking", "keep_alive"):
+            if k in config:
+                merged_request[k] = config[k]
         merged.update(config)
+        merged["request"] = merged_request
+        # Ensure root 'model' reflects request 'model' if present
+        if "model" in merged_request:
+            merged["model"] = merged_request["model"]
         if verbose:
             LOGGER.debug("Config loaded: %s", merged)
         return merged
@@ -64,7 +91,7 @@ def build_prompt(config, display_name, numbered_lines):
     The prompt is designed to be flexible and non-restrictive regarding review criteria,
     while explicitly specifying the output format (<line>: <description>).
     """
-    custom_prompt = config.get("prompt") if config else None
+    custom_prompt = (config.get("request", {}).get("prompt") if config else None)
 
     output_format_instructions = (
         "Output format instructions:\n"
@@ -163,9 +190,14 @@ class Agent:
             if not line:
                 continue
             coord = iew.format.parse_coordinate(line)
-            if coord and line not in feedback:
-                feedback.append(line)
-                LOGGER.info("Added AI feedback: %s", line)
+            if coord:
+                if line not in feedback:
+                    feedback.append(line)
+                    LOGGER.info("Added AI feedback: %s", line)
+            elif feedback:
+                # Allow feedback to span multiple lines
+                feedback[-1] = f"{feedback[-1]}\n{line}"
+                LOGGER.info("Appended multi-line feedback: %s", line)
 
     def read_file(self, path):
         LOGGER.info("Reading file: %s", path)
@@ -187,7 +219,7 @@ class Agent:
         # AI enhancement via configured provider adapter
         try:
             display_name = os.path.basename(original_path or filepath)
-            numbered_lines = '\n'.join(f"{idx} | {line}" for idx, line in enumerate(lines, 1))
+            numbered_lines = '\n'.join(f"{idx}:{line}" for idx, line in enumerate(lines, 1))
 
             config = get_config(verbose=self.verbose)
             system_prompt = build_prompt(config, display_name, numbered_lines)
