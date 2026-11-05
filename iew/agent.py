@@ -31,6 +31,7 @@ def get_config(config_path=None, verbose=False):
         "debounce": 15,
         "timeout": 180,
         "max_retries": 3,
+        "endpoint": "http://localhost:11434/api/generate",
         "request": {
             "model": "llama3",
             "prompt": None,
@@ -57,8 +58,15 @@ def get_config(config_path=None, verbose=False):
         merged = dict(default_config)
         merged_request = dict(default_config["request"])
 
-        # If provider is openrouter and no model was explicitly configured, use OpenRouter's default model
-        provider = config.get("provider", default_config.get("provider", "ollama"))
+        # Resolve provider-specific defaults consistently with the adapter factory
+        provider = config.get("provider", default_config.get("provider", "ollama")).lower()
+        if "endpoint" not in config:
+            if provider == "openrouter":
+                merged["endpoint"] = "https://openrouter.ai/api/v1/chat/completions"
+            else:
+                merged["endpoint"] = "http://localhost:11434/api/generate"
+        else:
+            merged["endpoint"] = config["endpoint"]
         if provider == "openrouter":
             has_explicit_model = "model" in config or ("request" in config and isinstance(config["request"], dict) and "model" in config["request"])
             if not has_explicit_model:
@@ -86,10 +94,11 @@ def get_config(config_path=None, verbose=False):
 
 
 def build_prompt(config, display_name, numbered_lines):
-    """Build the AI review prompt, placing static instructions first for optimal KV cache reuse.
+    """Build a review prompt using default instructions or a custom template.
 
-    The prompt is designed to be flexible and non-restrictive regarding review criteria,
-    while explicitly specifying the output format (<line>: <description>).
+    Plain custom instructions precede the built-in format instructions and source.
+    Templates containing code placeholders control source placement and only get
+    built-in format instructions when no output format marker is present.
     """
     custom_prompt = (config.get("request", {}).get("prompt") if config else None)
 

@@ -47,6 +47,11 @@ Request parameters sent to the model inference provider (Ollama / OpenRouter) ar
 # Provider selection ("ollama" or "openrouter")
 provider = "ollama"
 
+# Custom endpoint URL (optional; defaults per provider)
+# For Ollama: http://localhost:11434/api/generate
+# For OpenRouter: https://openrouter.ai/api/v1/chat/completions
+endpoint = "http://localhost:11434/api/generate"
+
 # Common server settings
 debounce = 15                       # Wait N seconds after typing stops before review
 timeout = 180                       # Seconds to wait before timing out review request
@@ -65,6 +70,41 @@ prompt = "Review this code for bugs and logic errors." # Optional custom review 
 # For Ollama: options = { temperature = 0.2, top_p = 0.9, seed = 42 }, system = "...", format = "json", etc.
 # For OpenRouter: temperature = 0.3, max_tokens = 2000, top_p = 0.9, response_format = { type = "json_object" }, etc.
 ```
+
+## Custom Prompt Configuration
+
+The `[request]` prompt config option lets you provide a custom review prompt that will be sent to the LLM. This is optional; if omitted, a default prompt is used.
+
+- The prompt string is taken from `config["request"]["prompt"]` (or the `[request] prompt = "..."` in TOML).
+- You can include `{filename}` and `{code}` placeholders which will be replaced with the file being reviewed and its numbered source lines.
+- Without `{code}` or `{numbered_lines}`, the custom prompt comes first, followed by the built-in output format instructions, filename, and numbered source code. The format instructions are always appended in this case.
+- With `{code}` or `{numbered_lines}`, the substituted template is used without appending another filename or code section. Built-in output format instructions are appended only if the substituted text contains neither `<line>:` nor the exact text `Output format`.
+- For potential KV cache reuse, keep shared instructions before file-specific placeholders. Actual cache behavior depends on the inference provider; custom templates do not guarantee a shared static prefix.
+- Example TOML:
+
+```toml
+[request]
+prompt = "Focus on security vulnerabilities and potential bugs."
+```
+
+- Example custom prompt with placeholders:
+
+```toml
+[request]
+prompt = "Review {filename} for issues:\n{code}\nOutput format:\n<line>: <concise description>"
+```
+
+For `foo.py` containing `x = 1` and `y = 2` on two lines, this generates:
+
+```
+Review foo.py for issues:
+1:x = 1
+2:y = 2
+Output format:
+<line>: <concise description>
+```
+
+The template already includes a code placeholder and output format markers, so no built-in format instructions or additional code section are appended.
 
 ### Custom Config Path (`IEW_CONFIG`)
 

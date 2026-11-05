@@ -68,7 +68,10 @@ class OpenRouterAdapter(BaseAdapter):
         timeout = float(self.config.get("timeout", 180))
         LOGGER.info("Using timeout: %s", timeout)
 
-        url = "https://openrouter.ai/api/v1/chat/completions"
+        openrouter_endpoint = self.config.get("endpoint", "https://openrouter.ai/api/v1/chat/completions")
+        LOGGER.info("Using OpenRouter endpoint: %s", openrouter_endpoint)
+
+        url = openrouter_endpoint
 
         headers = {
             "Content-Type": "application/json",

@@ -30,6 +30,7 @@ def test_get_config_defaults(tmp_path):
     assert cfg["debounce"] == 15
     assert cfg["timeout"] == 180
     assert cfg["max_retries"] == 3
+    assert cfg["endpoint"] == "http://localhost:11434/api/generate"
     assert cfg["request"]["prompt"] is None
     assert cfg["request"]["keep_alive"] == "30m"
     assert cfg["request"]["thinking"] is None
@@ -62,6 +63,63 @@ def test_get_config_custom_toml(tmp_path):
     assert cfg["timeout"] == 180  # default preserved
 
 
+@pytest.mark.parametrize("provider", [
+    "ollama", "Ollama", "OLLAMA", "openrouter", "OpenRouter", "OPENROUTER",
+])
+def test_get_config_provider_defaults(tmp_path, provider):
+    """Provider-specific endpoint and model defaults are case-insensitive."""
+    config_file = tmp_path / "iew.toml"
+    config_file.write_text(f'provider = "{provider}"\n')
+    cfg = get_config(config_path=str(config_file))
+
+    if provider.lower() == "openrouter":
+        expected_endpoint = "https://openrouter.ai/api/v1/chat/completions"
+        expected_model = "deepseek/deepseek-chat-v3-0324:free"
+    else:
+        expected_endpoint = "http://localhost:11434/api/generate"
+        expected_model = "llama3"
+
+    assert cfg["endpoint"] == expected_endpoint
+    assert cfg["model"] == expected_model
+    assert cfg["request"]["model"] == expected_model
+
+
+@pytest.mark.parametrize("provider, default_endpoint", [
+    ("Ollama", "http://localhost:11434/api/generate"),
+    ("OpenRouter", "https://openrouter.ai/api/v1/chat/completions"),
+])
+@pytest.mark.parametrize("endpoint", [None, "https://inference.example.test/custom"])
+def test_configured_endpoint_is_used(tmp_path, provider, default_endpoint, endpoint):
+    """Adapters use the resolved default or explicit endpoint from the loaded config."""
+    from iew.adapters import get_adapter
+
+    config_file = tmp_path / "iew.toml"
+    config_text = (
+        f'provider = "{provider}"\n'
+        'model = "custom-model"\n'
+        'api_key = "test-key"\n'
+    )
+    if endpoint is not None:
+        config_text += f'endpoint = "{endpoint}"\n'
+    config_file.write_text(config_text)
+    cfg = get_config(config_path=str(config_file))
+
+    response = json.dumps({
+        "response": "ok",
+        "choices": [{"message": {"content": "ok"}}],
+    }).encode("utf-8")
+    with patch("urllib.request.urlopen") as mock_urlopen:
+        mock_urlopen.return_value.__enter__.return_value.read.return_value = response
+        assert get_adapter(cfg).complete("review this code") == "ok"
+
+    req = mock_urlopen.call_args[0][0]
+    assert cfg["endpoint"] == (endpoint or default_endpoint)
+    assert req.get_full_url() == (endpoint or default_endpoint)
+    assert json.loads(req.data.decode("utf-8"))["model"] == "custom-model"
+    if provider.lower() == "openrouter":
+        assert req.get_header("Authorization") == "Bearer test-key"
+
+
 def test_build_prompt_default():
     """Default prompt is flexible and clearly specifies line-number output format."""
     prompt = build_prompt({}, "foo.py", "1 | x = 1\n2 | y = 2")
@@ -87,6 +145,38 @@ def test_build_prompt_custom_template():
     assert "Check bar.js:" in prompt
     assert "1 | console.log('test');" in prompt
     assert "<line>: <msg>" in prompt
+
+
+@pytest.mark.parametrize("code_placeholder", ["code", "numbered_lines"])
+@pytest.mark.parametrize("format_marker", [
+    "", "<line>: <description>", "Output format: numbered findings only",
+])
+def test_build_prompt_template_format_instructions(code_placeholder, format_marker):
+    """Code templates only get built-in format instructions when no marker is present."""
+    code = "1:x = 1\n2:y = 2"
+    template = f"Review {{filename}}:\n{{{code_placeholder}}}\n{format_marker}"
+    prompt = build_prompt({"request": {"prompt": template}}, "foo.py", code)
+    rendered = f"Review foo.py:\n{code}\n{format_marker}"
+
+    if format_marker:
+        assert prompt == rendered
+    else:
+        assert prompt.startswith(f"{rendered}\n\nOutput format instructions:")
+    assert "Code file:" not in prompt
+    assert prompt.count(code) == 1
+
+
+@pytest.mark.parametrize("format_marker", [
+    "", "<line>: <description>", "Output format: numbered findings only",
+])
+def test_build_prompt_without_code_always_appends_instructions(format_marker):
+    """Plain custom instructions precede built-in formatting and the appended source."""
+    custom_prompt = f"Focus on security. {format_marker}"
+    code = "1:x = 1"
+    prompt = build_prompt({"request": {"prompt": custom_prompt}}, "foo.py", code)
+
+    assert prompt.startswith(f"{custom_prompt}\n\nOutput format instructions:")
+    assert prompt.endswith(f"Code file: foo.py\n\nCode with line numbers:\n{code}")
 
 
 def test_build_prompt_prefix_order():

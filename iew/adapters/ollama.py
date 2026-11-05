@@ -44,8 +44,11 @@ class OllamaAdapter(BaseAdapter):
         timeout = float(self.config.get("timeout", 180))
         LOGGER.info("Using timeout: %s", timeout)
 
+        ollama_endpoint = self.config.get("endpoint", "http://localhost:11434/api/generate")
+        LOGGER.info("Using Ollama endpoint: %s", ollama_endpoint)
+
         req = urllib.request.Request(
-            "http://localhost:11434/api/generate",
+            ollama_endpoint,
             data=json.dumps(payload).encode("utf-8"),
             headers={"Content-Type": "application/json"},
             method="POST",
