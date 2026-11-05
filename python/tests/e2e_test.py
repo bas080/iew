@@ -528,7 +528,7 @@ def test_multiline_feedback_to_diagnostics():
 
 def test_bin_lsp_initialize_and_review(tmp_path):
     """The bin script should start the LSP server, respond to initialize, and handle a textDocument/didOpen message."""
-    bin_path = "/home/bashbot/iew/bin/iew-lsp"
+    bin_path = "bin/iew-lsp"
     
     # Write a temporary config to avoid using user's configuration
     # especially to set debounce = 0 so the test runs instantly,
@@ -540,8 +540,9 @@ def test_bin_lsp_initialize_and_review(tmp_path):
     env["IEW_CONFIG"] = str(config_file)
 
     # Start the server process
+    cmd = [bin_path] if not bin_path.endswith('.py') else [sys.executable, bin_path]
     proc = subprocess.Popen(
-        [sys.executable, bin_path],
+        cmd,
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -635,7 +636,7 @@ def test_bin_lsp_initialize_and_review(tmp_path):
 
 def test_bin_lsp_health_check(tmp_path):
     """The bin script --health flag should send "hi" to configured provider and print log location."""
-    bin_path = "/home/bashbot/iew/bin/iew-lsp"
+    bin_path = "bin/iew-lsp"
 
     config_file = tmp_path / "test_iew.toml"
     config_file.write_text('provider = "ollama"\nmodel = "qwen2.5-coder:3b-instruct"\ndebounce = 0\ntimeout = 10\n')
@@ -644,8 +645,9 @@ def test_bin_lsp_health_check(tmp_path):
     env["IEW_CONFIG"] = str(config_file)
 
     # Run the health check command
+    cmd = [bin_path, "--health"] if not bin_path.endswith('.py') else [sys.executable, bin_path, "--health"]
     result = subprocess.run(
-        [sys.executable, bin_path, "--health"],
+        cmd,
         capture_output=True,
         text=True,
         timeout=30,
